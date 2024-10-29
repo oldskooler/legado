@@ -17,7 +17,7 @@
         >
           <PopCatalog @getContent="getContent" class="popup" />
           <template #reference>
-            <div class="tool-icon" :class="{ 'no-point': noPoint }">
+            <div class="tool-icon" :class="{ 'no-point': false }">
               <div class="iconfont">&#58905;</div>
               <div class="icon-text">目录</div>
             </div>
@@ -155,6 +155,7 @@ watch(
     sessionStorage.setItem('chapterIndex', book.chapterIndex.toString())
     sessionStorage.setItem('chapterPos', book.chapterPos.toString())
   },
+  { deep: 1 },
 )
 
 // 无限滚动
@@ -254,9 +255,10 @@ const onResize = () => {
   const width = store.config.readWidth /**包含padding */
   checkPageWidth(width)
 }
-/** 判断阅读宽度是否超出页面 */
+/** 判断阅读宽度是否超出页面或者低于默认值640 */
 const checkPageWidth = (readWidth: number) => {
   if (store.miniInterface) return
+  if (readWidth < 640) store.config.readWidth = 640
   if (readWidth + 2 * 68 > window.innerWidth) store.config.readWidth -= 160
 }
 watch(
@@ -318,7 +320,6 @@ const getContent = (index: number, reloadChapter = true, chapterPos = 0) => {
         }
       },
       err => {
-        ElMessage({ message: '获取章节内容失败', type: 'error' })
         const content = ['获取章节内容失败！']
         chapterData.value.push({ index, content, title })
         store.setShowContent(true)
@@ -372,7 +373,7 @@ const saveReadingBookProgressToBrowser = (index: number, pos: number) => {
 const onVisibilityChange = () => {
   const _bookProgress = bookProgress.value
   if (document.visibilityState == 'hidden' && _bookProgress) {
-    API.saveBookProgressWithBeacon(_bookProgress)
+    store.saveBookProgress()
   }
 }
 // 定时同步
@@ -462,18 +463,15 @@ const handleKeyPress = (event: KeyboardEvent) => {
 }
 
 // 阻止默认滚动事件
-const ignoreKeyPress = (event: {
-  key: string
-  preventDefault: () => void
-  stopPropagation: () => void
-}) => {
+const ignoreKeyPress = (event: KeyboardEvent) => {
   if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
     event.preventDefault()
     event.stopPropagation()
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await store.loadWebConfig()
   //获取书籍数据
   const bookUrl = sessionStorage.getItem('bookUrl')
   const name = sessionStorage.getItem('bookName')
@@ -481,7 +479,7 @@ onMounted(() => {
   const chapterIndex = Number(sessionStorage.getItem('chapterIndex') || 0)
   const chapterPos = Number(sessionStorage.getItem('chapterPos') || 0)
   const isSeachBook = sessionStorage.getItem('isSeachBook') === 'true'
-  if (isNullOrBlank(bookUrl) || isNullOrBlank(name) || isNullOrBlank(author)) {
+  if (isNullOrBlank(bookUrl) || isNullOrBlank(name) || author === null) {
     ElMessage.warning('书籍信息为空，即将自动返回书架页面...')
     return setTimeout(toShelf, 500)
   }
@@ -490,67 +488,30 @@ onMounted(() => {
     bookUrl,
     // @ts-expect-error: bookUrl name author is NON_Blank string here
     name,
-    // @ts-expect-error: bookUrl name author is NON_Blank string here
     author,
     chapterIndex,
     chapterPos,
     isSeachBook,
   }
-  /*   const bookStr = localStorage.getItem(bookUrl);
-  if (isNullOrBlank(bookStr)) {
-    return setTimeout(toShelf, 500);
-  }
-  book = JSON.parse(bookStr as string);
-  if (
-    book == null ||
-    chapterIndex != book.chapterIndex ||
-    chapterPos != book.chapterPos
-  ) {
-    book = {
-      name: bookName!!,
-      author: bookAuthor!!,
-      bookUrl,
-      chapterIndex,
-      chapterPos,
-      isSeachBook
-    };
-    localStorage.setItem(bookUrl, JSON.stringify(book));
-  } */
   onResize()
   window.addEventListener('resize', onResize)
   loadingWrapper(
-    API.getChapterList(bookUrl as string).then(
-      res => {
-        if (!res.data.isSuccess) {
-          ElMessage({ message: res.data.errorMsg, type: 'error' })
-          setTimeout(toShelf, 500)
-          return
-        }
-        const data = res.data.data
-        store.setCatalog(data)
-        store.setReadingBook(book)
-
-        getContent(chapterIndex, true, chapterPos)
-        window.addEventListener('keyup', handleKeyPress)
-        window.addEventListener('keydown', ignoreKeyPress)
-        // 兼容Safari < 14
-        document.addEventListener('visibilitychange', onVisibilityChange)
-        //监听底部加载
-        scrollObserver = new IntersectionObserver(onReachBottom, {
-          rootMargin: '-100% 0% 20% 0%',
-        })
-        if (infiniteLoading.value === true)
-          scrollObserver.observe(loading.value)
-        //第二次点击同一本书 页面标题不会变化
-        document.title = '...'
-        document.title =
-          (name as string) + ' | ' + catalog.value[chapterIndex].title
-      },
-      err => {
-        ElMessage({ message: '获取书籍目录失败', type: 'error' })
-        throw err
-      },
-    ),
+    store.loadWebCatalog(book).then(chapters => {
+      store.setReadingBook(book)
+      getContent(chapterIndex, true, chapterPos)
+      window.addEventListener('keyup', handleKeyPress)
+      window.addEventListener('keydown', ignoreKeyPress)
+      // 兼容Safari < 14
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      //监听底部加载
+      scrollObserver = new IntersectionObserver(onReachBottom, {
+        rootMargin: '-100% 0% 20% 0%',
+      })
+      if (infiniteLoading.value === true) scrollObserver.observe(loading.value)
+      //第二次点击同一本书 页面标题不会变化
+      document.title = '...'
+      document.title = (name as string) + ' | ' + chapters[chapterIndex].title
+    }),
   )
 })
 
@@ -574,7 +535,7 @@ const addToBookShelfConfirm = async () => {
       confirmButtonText: '确认',
       cancelButtonText: '否',
       type: 'info',
-      /*      
+      /*
         ElMessageBox.confirm默认在触发hashChange事件时自动关闭
         按下物理返回键时触发hashChange事件
         使用router.push("/")则不会触发hashChange事件

@@ -2,15 +2,23 @@ import type { AxiosResponse } from 'axios'
 import type { LeagdoApiResponse } from './api'
 import API, {
   setWebsocketOnError,
-  legado_http_entry_point,
-  legado_webSocket_entry_point,
   setApiEntryPoint,
+  legado_http_entry_point,
+  setWebsocketOnMessage,
 } from './api'
 import ajax from './axios'
 import { validatorHttpUrl } from '@/utils/utils'
 
+import { createApp } from 'vue'
+import App from '@/App.vue'
+import store, { useConnectionStore } from '@/store'
+
+createApp(App).use(store)
+const connectionStore = useConnectionStore()
+
 const LeagdoApiResponseKeys: string[] = Array.of('isSuccess', 'errorMsg')
 
+const notification = ElMessage
 /** Axios.Interceptor: check if resp is LeagaoLeagdoApiResponse*/
 const responseCheckInterceptor = (resp: AxiosResponse) => {
   let isLeagdoApiResponse = true
@@ -26,28 +34,37 @@ const responseCheckInterceptor = (resp: AxiosResponse) => {
     if ((data as LeagdoApiResponse<unknown>).isSuccess === true) {
       if (!('data' in data)) {
         isLeagdoApiResponse = false
-        LeagdoApiResponseKeys.length = 0
       }
     }
   } catch {
     isLeagdoApiResponse = false
   }
   if (isLeagdoApiResponse === false) {
-    ElNotification.warning('后端返回内容格式错误')
+    notification.warning({ message: '后端返回内容格式错误', grouping: true })
     throw new Error()
   }
+  connectionStore.setConnectType('primary')
+  connectionStore.setConnectStatus('已连接 ' + legado_http_entry_point)
   return resp
 }
 
 const axiosErrorInterceptor = (err: unknown) => {
-  ElNotification.error('后端连接失败，请检查阅读WEB服务或者设置其它可用链接')
+  notification.error({
+    message: '后端连接失败，请检查阅读WEB服务或者设置其它可用链接',
+    grouping: true,
+  })
+  connectionStore.setConnectType('danger')
+  connectionStore.setConnectStatus('连接异常')
   throw err
 }
 // http全局
 ajax.interceptors.response.use(responseCheckInterceptor, axiosErrorInterceptor)
 // websocket
 setWebsocketOnError(axiosErrorInterceptor)
-
+setWebsocketOnMessage(() => {
+  connectionStore.setConnectType('primary')
+  connectionStore.setConnectStatus('已连接 ' + legado_http_entry_point)
+})
 /**
  * 按照阅读的默认规则 解析阅读HTTP WebSocket API入口地址
  * @returns [http_url, webSocekt_url]
@@ -80,8 +97,8 @@ export const parseLeagdoHttpUrlWithDefault = (
 
   console.info('legado_api_config:')
   console.table({
-    'http API入口': legado_http_entry_point,
-    'webSocket API入口': legado_webSocket_entry_point,
+    'http API入口': http_entry_point,
+    'webSocket API入口': webSocket_entry_point,
   })
   return [http_entry_point, webSocket_entry_point]
 }
