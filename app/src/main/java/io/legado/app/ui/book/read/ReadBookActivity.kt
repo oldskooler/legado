@@ -128,7 +128,6 @@ import io.legado.app.utils.visible
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -233,7 +232,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     override val pageFactory get() = binding.readView.pageFactory
     override val pageDelegate get() = binding.readView.pageDelegate
     override val headerHeight: Int get() = binding.readView.curPage.headerHeight
-    private val menuLayoutIsVisible get() = bottomDialog > 0 || binding.readMenu.isVisible
+    private val menuLayoutIsVisible get() = bottomDialog > 0 || binding.readMenu.isVisible || binding.searchMenu.bottomMenuVisible
     private val nextPageDebounce by lazy { Debounce { keyPage(PageDirection.NEXT) } }
     private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
     private var bookChanged = false
@@ -313,6 +312,8 @@ class ReadBookActivity : BaseReadBookActivity(),
         upSystemUiVisibility()
         if (hasFocus) {
             binding.readMenu.upBrightnessState()
+        } else if (!menuLayoutIsVisible) {
+            ReadBook.cancelPreDownloadTask()
         }
     }
 
@@ -320,6 +321,12 @@ class ReadBookActivity : BaseReadBookActivity(),
         super.onConfigurationChanged(newConfig)
         upSystemUiVisibility()
         binding.readView.upStatusBar()
+    }
+
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        if (!isTopResumedActivity) {
+            ReadBook.cancelPreDownloadTask()
+        }
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -357,6 +364,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         autoPageStop()
         backupJob?.cancel()
         ReadBook.saveRead()
+        ReadBook.cancelPreDownloadTask()
         unregisterReceiver(timeBatteryReceiver)
         upSystemUiVisibility()
         if (!BuildConfig.DEBUG) {
@@ -420,10 +428,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                 else -> when (item.itemId) {
                     R.id.menu_enable_replace -> item.isChecked = book.getUseReplaceRule()
                     R.id.menu_re_segment -> item.isChecked = book.getReSegment()
-                    R.id.menu_enable_review -> {
-                        item.isVisible = BuildConfig.DEBUG
-                        item.isChecked = AppConfig.enableReview
-                    }
+//                    R.id.menu_enable_review -> {
+//                        item.isVisible = BuildConfig.DEBUG
+//                        item.isChecked = AppConfig.enableReview
+//                    }
 
                     R.id.menu_reverse_content -> item.isVisible = onLine
                     R.id.menu_del_ruby_tag -> item.isChecked = book.getDelTag(Book.rubyTag)
@@ -522,11 +530,11 @@ class ReadBookActivity : BaseReadBookActivity(),
                 ReadBook.loadContent(false)
             }
 
-            R.id.menu_enable_review -> {
-                AppConfig.enableReview = !AppConfig.enableReview
-                item.isChecked = AppConfig.enableReview
-                ReadBook.loadContent(false)
-            }
+//            R.id.menu_enable_review -> {
+//                AppConfig.enableReview = !AppConfig.enableReview
+//                item.isChecked = AppConfig.enableReview
+//                ReadBook.loadContent(false)
+//            }
 
             R.id.menu_del_ruby_tag -> ReadBook.book?.let {
                 item.isChecked = !item.isChecked
@@ -1285,7 +1293,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     analyzeRule.setBaseUrl(chapter.url)
                     analyzeRule.chapter = chapter
                     analyzeRule.evalJS(payAction).toString()
-                }.onSuccess {
+                }.onSuccess(IO) {
                     if (it.isAbsUrl()) {
                         startActivity<WebViewActivity> {
                             putExtra("title", getString(R.string.chapter_pay))
