@@ -15,6 +15,7 @@ import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.book.isPdf
+import io.legado.app.help.book.isSameNameAuthor
 import io.legado.app.help.book.readSimulating
 import io.legado.app.help.book.simulatedTotalChapterNum
 import io.legado.app.help.book.update
@@ -25,6 +26,7 @@ import io.legado.app.help.globalExecutor
 import io.legado.app.model.localBook.TextFile
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.service.CacheBookService
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
@@ -921,6 +923,18 @@ object ReadBook : CoroutineScope by MainScope() {
         }
     }
 
+    fun onChapterListUpdated(newBook: Book) {
+        if (newBook.isSameNameAuthor(book)) {
+            book = newBook
+            chapterSize = newBook.totalChapterNum
+            simulatedChapterSize = newBook.simulatedTotalChapterNum()
+            if (simulatedChapterSize > 0 && durChapterIndex > simulatedChapterSize - 1) {
+                durChapterIndex = simulatedChapterSize - 1
+            }
+            clearTextChapter()
+        }
+    }
+
     /**
      * 注册回调
      */
@@ -943,6 +957,9 @@ object ReadBook : CoroutineScope by MainScope() {
         downloadedChapters.clear()
         downloadFailChapters.clear()
         ImageProvider.clear()
+        if (!CacheBookService.isRun) {
+            CacheBook.close()
+        }
     }
 
     interface CallBack : LayoutProgressListener {

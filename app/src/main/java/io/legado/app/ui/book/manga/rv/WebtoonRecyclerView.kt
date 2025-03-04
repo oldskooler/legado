@@ -42,9 +42,6 @@ class WebtoonRecyclerView @JvmOverloads constructor(
     private val blRect = RectF()
     private val brRect = RectF()
 
-    //起始点
-    private var startX: Float = 0f
-    private var startY: Float = 0f
     var doubleTapZoom = true
     var tapListener: ((MotionEvent) -> Unit)? = null
     var longTapListener: ((MotionEvent) -> Boolean)? = null
@@ -63,13 +60,15 @@ class WebtoonRecyclerView @JvmOverloads constructor(
         halfHeight = MeasureSpec.getSize(heightSpec) / 2
         if (!heightSet) {
             originalHeight = MeasureSpec.getSize(heightSpec)
+            val width = MeasureSpec.getSize(widthSpec)
+            setClickArea(width, originalHeight)
             heightSet = true
         }
         super.onMeasure(widthSpec, heightSpec)
     }
 
-    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
-        detector.onTouchEvent(ev!!)
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        detector.onTouchEvent(ev)
         return super.dispatchTouchEvent(ev)
     }
 
@@ -106,8 +105,7 @@ class WebtoonRecyclerView @JvmOverloads constructor(
         return super.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, type)
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
+    private fun setClickArea(width: Int, height: Int) {
         mcRect.set(width * 0.33f, height * 0.33f, width * 0.66f, height * 0.66f)
         blRect.set(0f, height * 0.66f, width * 0.33f, height.toFloat())
         brRect.set(width * 0.66f, height * 0.66f, width.toFloat(), height.toFloat())
@@ -253,15 +251,15 @@ class WebtoonRecyclerView @JvmOverloads constructor(
 
         override fun onSingleTapConfirmed(ev: MotionEvent): Boolean {
             when {
-                mcRect.contains(startX, startY) -> {
+                mcRect.contains(ev.rawX, ev.rawY) -> {
                     mToucheMiddle?.invoke()
                 }
 
-                blRect.contains(startX, startY) && !disabledClickScroller -> {
+                blRect.contains(ev.rawX, ev.rawY) && !disabledClickScroller -> {
                     mPrevPage?.invoke()
                 }
 
-                brRect.contains(startX, startY) && !disabledClickScroller-> {
+                brRect.contains(ev.rawX, ev.rawY) && !disabledClickScroller-> {
                     mNextPage?.invoke()
                 }
 
@@ -314,12 +312,8 @@ class WebtoonRecyclerView @JvmOverloads constructor(
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
                     scrollPointerId = ev.getPointerId(0)
-                    val eveX = (ev.x + 0.5f)
-                    val eveY = (ev.y + 0.5f)
-                    downX = eveX.toInt()
-                    downY = eveY.toInt()
-                    startX = eveX
-                    startY = eveY
+                    downX = (ev.x + 0.5f).toInt()
+                    downY =(ev.y + 0.5f).toInt()
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> {
