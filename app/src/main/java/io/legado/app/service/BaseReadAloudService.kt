@@ -156,14 +156,15 @@ abstract class BaseReadAloudService : BaseService(),
             toastOnUi("朗读定时 ${AppConfig.ttsTimer} 分钟")
         }
         execute {
-            @Suppress("BlockingMethodInNonBlockingContext")
             ImageLoader
                 .loadBitmap(this@BaseReadAloudService, ReadBook.book?.getDisplayCover())
                 .submit()
                 .get()
         }.onSuccess {
-            cover = it
-            upReadAloudNotification()
+            if (it.width > 16 && it.height > 16) {
+                cover = it
+                upReadAloudNotification()
+            }
         }
     }
 
@@ -544,7 +545,7 @@ abstract class BaseReadAloudService : BaseService(),
         if (nSubtitle.isNullOrBlank())
             nSubtitle = getString(R.string.read_aloud_s)
         val builder = NotificationCompat
-            .Builder(this@BaseReadAloudService, AppConst.channelIdReadAloud)
+            .Builder(this, AppConst.channelIdReadAloud)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)

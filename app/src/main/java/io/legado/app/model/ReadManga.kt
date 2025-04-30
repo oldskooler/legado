@@ -1,7 +1,6 @@
 package io.legado.app.model
 
 import io.legado.app.constant.AppLog
-import io.legado.app.constant.AppPattern
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
@@ -21,11 +20,11 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.globalExecutor
 import io.legado.app.model.webBook.WebBook
+import io.legado.app.ui.book.manga.entities.BaseMangaPage
 import io.legado.app.ui.book.manga.entities.MangaChapter
 import io.legado.app.ui.book.manga.entities.MangaContent
-import io.legado.app.ui.book.manga.entities.MangaContentData
+import io.legado.app.ui.book.manga.entities.MangaPage
 import io.legado.app.ui.book.manga.entities.ReaderLoading
-import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.mapIndexed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -37,7 +36,6 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -46,12 +44,10 @@ import kotlin.math.min
 @Suppress("MemberVisibilityCanBePrivate")
 object ReadManga : CoroutineScope by MainScope() {
     var inBookshelf = false
-    var tocChanged = false
     var book: Book? = null
     val executor = globalExecutor
     var durChapterIndex = 0 //章节位置
     var chapterSize = 0//总章节
-    var durChapterImageCount = 0
     var durChapterPos = 0
     var prevMangaChapter: MangaChapter? = null
     var curMangaChapter: MangaChapter? = null
@@ -68,7 +64,7 @@ object ReadManga : CoroutineScope by MainScope() {
     val downloadScope = CoroutineScope(SupervisorJob() + IO)
     val preDownloadSemaphore = Semaphore(2)
     var rateLimiter = ConcurrentRateLimiter(null)
-    val mangaContents get() = buildContentList()
+    val mangaContents get() = buildMangaContent()
     val hasNextChapter get() = durChapterIndex < simulatedChapterSize - 1
 
     fun resetData(book: Book) {
@@ -101,7 +97,7 @@ object ReadManga : CoroutineScope by MainScope() {
             chapterSize
         }
 
-        if (durChapterIndex != book.durChapterIndex || tocChanged) {
+        if (durChapterIndex != book.durChapterIndex) {
             durChapterIndex = book.durChapterIndex
             durChapterPos = book.durChapterPos
             clearMangaChapter()
@@ -210,26 +206,25 @@ object ReadManga : CoroutineScope by MainScope() {
                     mCallback?.loadFail(errorMsg)
                     return
                 }
-                if (content.isEmpty()) {
+                if (content.isEmpty() && !chapter.isVolume) {
                     mCallback?.loadFail("正文内容为空")
                     return
                 }
                 val mangaChapter = getManageChapter(chapter, content)
-                if (mangaChapter.imageCount == 0) {
+                if (mangaChapter.imageCount == 0 && !chapter.isVolume) {
                     mCallback?.loadFail("正文没有图片")
                     return
                 }
-                durChapterImageCount = mangaChapter.imageCount
                 curMangaChapter = mangaChapter
                 mCallback?.upContent()
             }
 
             -1, 1 -> {
-                if (content == null || content.isEmpty()) {
+                if (content == null || (!chapter.isVolume && content.isEmpty())) {
                     return
                 }
                 val mangaChapter = getManageChapter(chapter, content)
-                if (mangaChapter.imageCount == 0) {
+                if (mangaChapter.imageCount == 0 && !chapter.isVolume) {
                     return
                 }
 
@@ -243,33 +238,50 @@ object ReadManga : CoroutineScope by MainScope() {
         }
     }
 
-    private fun buildContentList(): MangaContentData {
-        val list = arrayListOf<Any>()
-        var pos = durChapterPos + 1
+    private fun buildMangaContent(): MangaContent {
+        val items = arrayListOf<BaseMangaPage>()
+        var pos = 0
+        var curFinish = false
+        var nextFinish = false
         prevMangaChapter?.let {
-            pos += it.contents.size
-            list.addAll(it.contents)
+            pos += it.pages.size
+            items.addAll(it.pages)
         }
         curMangaChapter?.let {
-            list.addAll(it.contents)
+            curFinish = true
+            items.addAll(it.pages)
+            durChapterPos = if (it.imageCount > 0) {
+                durChapterPos.coerceIn(0, it.imageCount - 1)
+            } else {
+                0
+            }
+            pos += durChapterPos
+            if (!AppConfig.hideMangaTitle && it.imageCount > 0) {
+                pos++
+            }
         }
         nextMangaChapter?.let {
-            list.addAll(it.contents)
+            nextFinish = true
+            items.addAll(it.pages)
         }
-        return MangaContentData(pos, list, curMangaChapter != null, nextMangaChapter != null)
+        return MangaContent(pos, items, curFinish, nextFinish)
     }
 
     /**
      * 加载下一章
      */
-    fun moveToNextChapter(startLoad: () -> Unit): Boolean {
+    fun moveToNextChapter(toFirst: Boolean = false): Boolean {
         if (durChapterIndex < simulatedChapterSize - 1) {
+            if (toFirst) {
+                mCallback?.showLoading()
+                durChapterPos = 0
+            }
             durChapterIndex++
             prevMangaChapter = curMangaChapter
             curMangaChapter = nextMangaChapter
             nextMangaChapter = null
             if (curMangaChapter == null) {
-                startLoad.invoke()
+                mCallback?.startLoad()
                 loadContent(durChapterIndex)
             } else {
                 mCallback?.upContent()
@@ -285,8 +297,12 @@ object ReadManga : CoroutineScope by MainScope() {
         }
     }
 
-    fun moveToPrevChapter(): Boolean {
+    fun moveToPrevChapter(toFirst: Boolean = false): Boolean {
         if (durChapterIndex > 0) {
+            if (toFirst) {
+                mCallback?.showLoading()
+                durChapterPos = 0
+            }
             durChapterIndex--
             nextMangaChapter = curMangaChapter
             curMangaChapter = prevMangaChapter
@@ -430,7 +446,7 @@ object ReadManga : CoroutineScope by MainScope() {
                     (downloadFailChapters[chapter.index] ?: 0) + 1
                 contentLoadFinish(chapter, null)
             }, cancel = {
-                contentLoadFinish(chapter, null, canceled =  true)
+                contentLoadFinish(chapter, null, canceled = true)
             })
         } else {
             contentLoadFinish(chapter, null, "加载内容失败 没有书源")
@@ -479,29 +495,28 @@ object ReadManga : CoroutineScope by MainScope() {
         syncSuccessAction: (() -> Unit)? = null,
     ) {
         if (!AppConfig.syncBookProgress) return
-        book?.let {
-            Coroutine.async {
-                AppWebDav.getBookProgress(it)
-            }.onError {
-                AppLog.put("拉取阅读进度失败", it)
-            }.onSuccess { progress ->
-                if (progress == null || progress.durChapterIndex < it.durChapterIndex ||
-                    (progress.durChapterIndex == it.durChapterIndex
-                            && progress.durChapterPos < it.durChapterPos)
-                ) {
-                    // 服务器没有进度或者进度比服务器快，上传现有进度
-                    Coroutine.async {
-                        AppWebDav.uploadBookProgress(BookProgress(it), uploadSuccessAction)
-                        it.update()
-                    }
-                } else if (progress.durChapterIndex > it.durChapterIndex ||
-                    progress.durChapterPos > it.durChapterPos
-                ) {
-                    // 进度比服务器慢，执行传入动作
-                    newProgressAction?.invoke(progress)
-                } else {
-                    syncSuccessAction?.invoke()
+        val book = book ?: return
+        Coroutine.async {
+            AppWebDav.getBookProgress(book)
+        }.onError {
+            AppLog.put("拉取阅读进度失败", it)
+        }.onSuccess { progress ->
+            if (progress == null || progress.durChapterIndex < book.durChapterIndex ||
+                (progress.durChapterIndex == book.durChapterIndex
+                        && progress.durChapterPos < book.durChapterPos)
+            ) {
+                // 服务器没有进度或者进度比服务器快，上传现有进度
+                Coroutine.async {
+                    AppWebDav.uploadBookProgress(BookProgress(book), uploadSuccessAction)
+                    book.update()
                 }
+            } else if (progress.durChapterIndex > book.durChapterIndex ||
+                progress.durChapterPos > book.durChapterPos
+            ) {
+                // 进度比服务器慢，执行传入动作
+                newProgressAction?.invoke(progress)
+            } else {
+                syncSuccessAction?.invoke()
             }
         }
     }
@@ -536,7 +551,11 @@ object ReadManga : CoroutineScope by MainScope() {
             if (simulatedChapterSize > 0 && durChapterIndex > simulatedChapterSize - 1) {
                 durChapterIndex = simulatedChapterSize - 1
             }
-            clearMangaChapter()
+            if (mCallback == null) {
+                clearMangaChapter()
+            } else {
+                loadContent()
+            }
         }
     }
 
@@ -561,22 +580,16 @@ object ReadManga : CoroutineScope by MainScope() {
     }
 
     private suspend fun getManageChapter(chapter: BookChapter, content: String): MangaChapter {
-        val list = flow {
-            val matcher = AppPattern.imgPattern.matcher(content)
-            while (matcher.find()) {
-                val src = matcher.group(1) ?: continue
-                val mSrc = NetworkUtils.getAbsoluteURL(chapter.url, src)
-                emit(mSrc)
-            }
-        }.distinctUntilChanged().mapIndexed { index, src ->
-            MangaContent(
-                mChapterIndex = chapter.index,
-                chapterSize = chapterSize,
-                mImageUrl = src,
-                index = index,
-                mChapterName = chapter.title
-            )
-        }.toList()
+        val list = BookHelp.flowImages(chapter, content)
+            .distinctUntilChanged().mapIndexed { index, src ->
+                MangaPage(
+                    chapterIndex = chapter.index,
+                    chapterSize = chapterSize,
+                    mImageUrl = src,
+                    index = index,
+                    mChapterName = chapter.title
+                )
+            }.toList()
 
         val imageCount = list.size
 
@@ -584,12 +597,21 @@ object ReadManga : CoroutineScope by MainScope() {
             it.imageCount = imageCount
         }
 
-        val contentList = mutableListOf<Any>()
-        contentList.add(ReaderLoading(chapter.index, "阅读 ${chapter.title}"))
-        contentList.addAll(list)
-        contentList.add(ReaderLoading(chapter.index, "已读完 ${chapter.title}"))
+        if (AppConfig.hideMangaTitle && imageCount > 0) {
+            return MangaChapter(chapter, list, imageCount)
+        }
 
-        return MangaChapter(chapter, contentList, imageCount)
+        val pages = mutableListOf<BaseMangaPage>()
+
+        if (imageCount == 0 && chapter.isVolume) {
+            pages.add(ReaderLoading(chapter.index, -1, chapter.title, true))
+        } else {
+            pages.add(ReaderLoading(chapter.index, -1, "阅读 ${chapter.title}"))
+            pages.addAll(list)
+            pages.add(ReaderLoading(chapter.index, imageCount, "已读完 ${chapter.title}"))
+        }
+
+        return MangaChapter(chapter, pages, imageCount)
     }
 
     interface Callback {
@@ -597,5 +619,6 @@ object ReadManga : CoroutineScope by MainScope() {
         fun loadFail(msg: String)
         fun sureNewProgress(progress: BookProgress)
         fun showLoading()
+        fun startLoad()
     }
 }

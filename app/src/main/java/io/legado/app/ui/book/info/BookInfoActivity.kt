@@ -60,6 +60,8 @@ import io.legado.app.ui.widget.dialog.PhotoDialog
 import io.legado.app.ui.widget.dialog.VariableDialog
 import io.legado.app.ui.widget.dialog.WaitDialog
 import io.legado.app.utils.ColorUtils
+import io.legado.app.utils.ConvertUtils
+import io.legado.app.utils.FileDoc
 import io.legado.app.utils.GSON
 import io.legado.app.utils.StartActivityContract
 import io.legado.app.utils.applyNavigationBarPadding
@@ -143,7 +145,6 @@ class BookInfoActivity :
             viewModel.refreshBook(book)
         }
     }
-    private var tocChanged = false
     private var chapterChanged = false
     private val waitDialog by lazy { WaitDialog(this) }
     private var editMenuItem: MenuItem? = null
@@ -256,7 +257,6 @@ class BookInfoActivity :
             R.id.menu_log -> showDialogFragment<AppLogDialog>()
             R.id.menu_split_long_chapter -> {
                 upLoading(true)
-                tocChanged = true
                 viewModel.getBook()?.let {
                     it.setSplitLongChapter(!item.isChecked)
                     viewModel.loadBookInfo(it, false)
@@ -341,21 +341,37 @@ class BookInfoActivity :
         tvIntro.text = book.getDisplayIntro()
         llToc?.visible(!book.isWebFile)
         upTvBookshelf()
-        val kinds = book.getKindList()
-        if (kinds.isEmpty()) {
-            lbKind.gone()
-        } else {
-            lbKind.visible()
-            lbKind.setLabels(kinds)
-        }
+        upKinds(book)
         upGroup(book.group)
     }
 
+    private fun upKinds(book: Book) = binding.run {
+        lifecycleScope.launch {
+            var kinds = book.getKindList()
+            if (book.isLocal) {
+                withContext(IO) {
+                    val size = FileDoc.fromFile(book.bookUrl).size
+                    if (size > 0) {
+                        kinds = kinds.toMutableList()
+                        kinds.add(ConvertUtils.formatFileSize(size))
+                    }
+                }
+            }
+            if (kinds.isEmpty()) {
+                lbKind.gone()
+            } else {
+                lbKind.visible()
+                lbKind.setLabels(kinds)
+            }
+        }
+    }
+
     private fun showCover(book: Book) {
-        binding.ivCover.load(book.getDisplayCover(), book.name, book.author, false, book.origin)
-        if (!AppConfig.isEInkMode) {
-            BookCover.loadBlur(this, book.getDisplayCover())
-                .into(binding.bgBook)
+        binding.ivCover.load(book.getDisplayCover(), book.name, book.author, false, book.origin) {
+            if (!AppConfig.isEInkMode) {
+                BookCover.loadBlur(this, book.getDisplayCover(), false, book.origin)
+                    .into(binding.bgBook)
+            }
         }
     }
 
@@ -697,15 +713,14 @@ class BookInfoActivity :
             else -> readBookResult.launch(
                 Intent(
                     this,
-                    if (book.isImage&&AppConfig.showMangaUi) ReadMangaActivity::class.java else ReadBookActivity::class.java
+                    if (book.isImage && AppConfig.showMangaUi) ReadMangaActivity::class.java
+                    else ReadBookActivity::class.java
                 )
                     .putExtra("bookUrl", book.bookUrl)
                     .putExtra("inBookshelf", viewModel.inBookshelf)
-                    .putExtra("tocChanged", tocChanged)
                     .putExtra("chapterChanged", chapterChanged)
             )
         }
-        tocChanged = false
     }
 
     override val oldBook: Book?

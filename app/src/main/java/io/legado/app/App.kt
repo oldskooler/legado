@@ -12,6 +12,7 @@ import android.os.Build
 import com.github.liuyueyi.quick.transfer.constants.TransType
 import com.jeremyliao.liveeventbus.LiveEventBus
 import com.jeremyliao.liveeventbus.logger.DefaultLogger
+import com.script.rhino.RhinoScriptEngine
 import io.legado.app.base.AppContextWrapper
 import io.legado.app.constant.AppConst.channelIdDownload
 import io.legado.app.constant.AppConst.channelIdReadAloud
@@ -27,6 +28,7 @@ import io.legado.app.help.RuleBigDataHelp
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.ThemeConfig.applyDayNight
+import io.legado.app.help.config.ThemeConfig.initNightMode
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.http.Cronet
 import io.legado.app.help.http.ObsoleteUrlFactory
@@ -54,28 +56,30 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler(this)
-        LogUtils.d("App", "onCreate")
-        LogUtils.logDeviceInfo()
         if (isDebuggable) {
             ThreadUtils.setThreadAssertsDisabledForTesting(true)
         }
         oldConfig = Configuration(resources.configuration)
-        //预下载Cronet so
-        Cronet.preDownload()
-        createNotificationChannels()
-        LiveEventBus.config()
-            .lifecycleObserverAlwaysActive(true)
-            .autoClear(false)
-            .enableLogger(BuildConfig.DEBUG || AppConfig.recordLog)
-            .setLogger(EventLogger())
-        applyDayNight(this)
+        initNightMode()
         registerActivityLifecycleCallbacks(LifecycleHelp)
         defaultSharedPreferences.registerOnSharedPreferenceChangeListener(AppConfig)
-        DefaultData.upVersion()
-        AppFreezeMonitor.init(this)
         Coroutine.async {
+            LogUtils.init(this@App)
+            LogUtils.d("App", "onCreate")
+            LogUtils.logDeviceInfo()
+            //预下载Cronet so
+            Cronet.preDownload()
+            createNotificationChannels()
+            LiveEventBus.config()
+                .lifecycleObserverAlwaysActive(true)
+                .autoClear(false)
+                .enableLogger(BuildConfig.DEBUG || AppConfig.recordLog)
+                .setLogger(EventLogger())
+            DefaultData.upVersion()
+            AppFreezeMonitor.init(this@App)
             URL.setURLStreamHandlerFactory(ObsoleteUrlFactory(okHttpClient))
             launch { installGmsTlsProvider(appCtx) }
+            RhinoScriptEngine
             //初始化封面
             BookCover.toString()
             //清除过期数据
@@ -210,6 +214,14 @@ class App : Application() {
 
         companion object {
             private const val TAG = "[LiveEventBus]"
+        }
+    }
+
+    companion object {
+        init {
+            if (BuildConfig.DEBUG) {
+                System.setProperty("kotlinx.coroutines.debug", "on")
+            }
         }
     }
 
