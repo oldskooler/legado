@@ -38,9 +38,12 @@ import io.legado.app.help.http.newCallStrResponse
 import io.legado.app.help.http.postForm
 import io.legado.app.help.http.postJson
 import io.legado.app.help.http.postMultipart
+import io.legado.app.help.source.copy
 import io.legado.app.help.source.getShareScope
+import io.legado.app.model.Debug
 import io.legado.app.utils.EncoderUtils
 import io.legado.app.utils.GSON
+import io.legado.app.utils.GSONStrict
 import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.fromJsonArray
 import io.legado.app.utils.fromJsonObject
@@ -219,8 +222,15 @@ class AnalyzeUrl(
             baseUrl = it
         }
         if (urlNoOption.length != ruleUrl.length) {
-            GSON.fromJsonObject<UrlOption>(ruleUrl.substring(urlMatcher.end())).getOrNull()
-                ?.let { option ->
+            val urlOptionStr = ruleUrl.substring(urlMatcher.end())
+            var urlOption = GSONStrict.fromJsonObject<UrlOption>(urlOptionStr).getOrNull()
+            if (urlOption == null) {
+                urlOption = GSON.fromJsonObject<UrlOption>(urlOptionStr).getOrNull()
+                if (urlOption != null) {
+                    Debug.log("≡链接参数 JSON 格式不规范，请改为规范格式")
+                }
+            }
+            urlOption?.let { option ->
                     option.getMethod()?.let {
                         if (it.equals("POST", true)) method = RequestMethod.POST
                     }
@@ -348,7 +358,7 @@ class AnalyzeUrl(
             bindings["speakText"] = speakText
             bindings["speakSpeed"] = speakSpeed
             bindings["book"] = ruleData as? Book
-            bindings["source"] = source
+            bindings["source"] = source?.copy()
             bindings["result"] = result
         }
         val sharedScope = source?.getShareScope(coroutineContext)

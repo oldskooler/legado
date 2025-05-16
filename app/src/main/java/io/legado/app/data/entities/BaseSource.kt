@@ -12,6 +12,7 @@ import io.legado.app.help.JsExtensions
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.crypto.SymmetricCryptoAndroid
 import io.legado.app.help.http.CookieStore
+import io.legado.app.help.source.copy
 import io.legado.app.help.source.getShareScope
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonArray
@@ -234,13 +235,14 @@ interface BaseSource : JsExtensions {
      */
     @Throws(Exception::class)
     fun evalJS(jsStr: String, bindingsConfig: ScriptBindings.() -> Unit = {}): Any? {
+        val sourceCopy = copy()
         val bindings = buildScriptBindings { bindings ->
-            bindings.apply(bindingsConfig)
-            bindings["java"] = this
-            bindings["source"] = this
+            bindings["java"] = sourceCopy
+            bindings["source"] = sourceCopy
             bindings["baseUrl"] = getKey()
             bindings["cookie"] = CookieStore
             bindings["cache"] = CacheManager
+            bindings.apply(bindingsConfig)
         }
         val sharedScope = getShareScope()
         val scope = if (sharedScope == null) {

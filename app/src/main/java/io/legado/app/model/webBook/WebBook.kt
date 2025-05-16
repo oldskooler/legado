@@ -212,11 +212,12 @@ object WebBook {
         return kotlin.runCatching {
             val preUpdateJs = bookSource.ruleToc?.preUpdateJs
             if (!preUpdateJs.isNullOrBlank()) {
-                AnalyzeRule(book, bookSource)
+                AnalyzeRule(book, bookSource, true)
                     .setCoroutineContext(coroutineContext)
                     .evalJS(preUpdateJs)
             }
         }.onFailure {
+            coroutineContext.ensureActive()
             AppLog.put("执行preUpdateJs规则失败 书源:${bookSource.bookSourceName}", it)
         }
     }
@@ -264,6 +265,8 @@ object WebBook {
                     body = res.body
                 )
             }
+        }.onFailure {
+            coroutineContext.ensureActive()
         }
     }
 
@@ -391,6 +394,8 @@ object WebBook {
                 return@runCatching searchBook.toBook()
             }
             throw NoStackTraceException("未搜索到 $name($author) 书籍")
+        }.onFailure {
+            coroutineContext.ensureActive()
         }
     }
 
