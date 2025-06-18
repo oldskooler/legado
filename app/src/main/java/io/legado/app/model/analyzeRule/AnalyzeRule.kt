@@ -16,7 +16,6 @@ import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.CacheManager
 import io.legado.app.help.JsExtensions
 import io.legado.app.help.http.CookieStore
-import io.legado.app.help.source.copy
 import io.legado.app.help.source.getShareScope
 import io.legado.app.model.Debug
 import io.legado.app.model.webBook.WebBook
@@ -30,7 +29,6 @@ import io.legado.app.utils.isJson
 import io.legado.app.utils.printOnDebug
 import io.legado.app.utils.splitNotBlank
 import io.legado.app.utils.stackTraceStr
-import io.legado.app.utils.updateVariableTo
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -52,22 +50,19 @@ import kotlin.coroutines.EmptyCoroutineContext
 @Keep
 @Suppress("unused", "RegExpRedundantEscape", "MemberVisibilityCanBePrivate")
 class AnalyzeRule(
-    var ruleData: RuleDataInterface? = null,
+    private var ruleData: RuleDataInterface? = null,
     private val source: BaseSource? = null,
     private val preUpdateJs: Boolean = false
 ) : JsExtensions {
 
-    val book get() = ruleData as? BaseBook
-    val rssArticle get() = ruleData as? RssArticle
+    private val book get() = ruleData as? BaseBook
+    private val rssArticle get() = ruleData as? RssArticle
 
-    var chapter: BookChapter? = null
-    var nextChapterUrl: String? = null
-    var content: Any? = null
-        private set
-    var baseUrl: String? = null
-        private set
-    var redirectUrl: URL? = null
-        private set
+    private var chapter: BookChapter? = null
+    private var nextChapterUrl: String? = null
+    private var content: Any? = null
+    private var baseUrl: String? = null
+    private var redirectUrl: URL? = null
     private var isJSON: Boolean = false
     private var isRegex: Boolean = false
 
@@ -523,6 +518,12 @@ class AnalyzeRule(
         return ruleList
     }
 
+    private fun getOrCreateSingleSourceRule(rule: String): List<SourceRule> {
+        return stringRuleCache.getOrPutLimit(rule, 16) {
+            listOf(SourceRule(rule))
+        }
+    }
+
     /**
      * 规则类
      */
@@ -675,7 +676,8 @@ class AnalyzeRule(
 
                         regType == jsRuleType -> {
                             if (isRule(ruleParam[index])) {
-                                getString(arrayListOf(SourceRule(ruleParam[index]))).let {
+                                val ruleList = getOrCreateSingleSourceRule(ruleParam[index])
+                                getString(ruleList).let {
                                     infoVal.insert(0, it)
                                 }
                             } else {
@@ -767,21 +769,19 @@ class AnalyzeRule(
      * 执行JS
      */
     fun evalJS(jsStr: String, result: Any? = null): Any? {
-        val chapterCopy = chapter?.copy()
-        val rssArticleCopy = rssArticle?.copy()
         val bindings = buildScriptBindings { bindings ->
             bindings["java"] = this
             bindings["cookie"] = CookieStore
             bindings["cache"] = CacheManager
-            bindings["source"] = source?.copy()
+            bindings["source"] = source
             bindings["book"] = book
             bindings["result"] = result
             bindings["baseUrl"] = baseUrl
-            bindings["chapter"] = chapterCopy
-            bindings["title"] = chapterCopy?.title
+            bindings["chapter"] = chapter
+            bindings["title"] = chapter?.title
             bindings["src"] = content
             bindings["nextChapterUrl"] = nextChapterUrl
-            bindings["rssArticle"] = rssArticleCopy
+            bindings["rssArticle"] = rssArticle
         }
         val topScope = source?.getShareScope(coroutineContext) ?: topScopeRef?.get()
         val scope = if (topScope == null) {
@@ -797,17 +797,7 @@ class AnalyzeRule(
         }
         val script = compileScriptCache(jsStr)
         val result = script.eval(scope, coroutineContext)
-        updateVariable(chapterCopy, rssArticleCopy)
         return result
-    }
-
-    private fun updateVariable(chapterCopy: BookChapter?, rssArticleCopy: RssArticle?) {
-        chapter?.let {
-            chapterCopy?.updateVariableTo(it)
-        }
-        rssArticle?.let {
-            rssArticleCopy?.updateVariableTo(it)
-        }
     }
 
     private fun compileScriptCache(jsStr: String): CompiledScript {
@@ -891,6 +881,21 @@ class AnalyzeRule(
 
         fun AnalyzeRule.setCoroutineContext(context: CoroutineContext): AnalyzeRule {
             coroutineContext = context.minusKey(ContinuationInterceptor)
+            return this
+        }
+
+        fun AnalyzeRule.setRuleData(ruleData: RuleDataInterface?): AnalyzeRule {
+            this.ruleData = ruleData
+            return this
+        }
+
+        fun AnalyzeRule.setNextChapterUrl(nextChapterUrl: String?): AnalyzeRule {
+            this.nextChapterUrl = nextChapterUrl
+            return this
+        }
+
+        fun AnalyzeRule.setChapter(chapter: BookChapter?): AnalyzeRule {
+            this.chapter = chapter
             return this
         }
 
