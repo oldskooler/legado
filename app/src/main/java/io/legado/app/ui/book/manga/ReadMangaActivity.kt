@@ -36,6 +36,7 @@ import io.legado.app.help.book.removeType
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.storage.Backup
 import io.legado.app.lib.dialogs.alert
+import io.legado.app.model.ReadBook
 import io.legado.app.model.ReadManga
 import io.legado.app.receiver.NetworkChangedListener
 import io.legado.app.ui.book.changesource.ChangeBookSourceDialog
@@ -348,7 +349,7 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
         networkChangedListener.register()
         networkChangedListener.onNetworkChanged = {
             // 当网络是可用状态且无需初始化时同步进度（初始化中已有同步进度逻辑）
-            if (AppConfig.syncBookProgressPlus && NetworkUtils.isAvailable() && !justInitData) {
+            if (AppConfig.syncBookProgressPlus && NetworkUtils.isAvailable() && !justInitData && ReadBook.inBookshelf) {
                 ReadManga.syncProgress({ progress -> sureNewProgress(progress) })
             }
         }
@@ -370,8 +371,10 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
                 } else {
                     ReadManga.uploadProgress()
                 }
-                Backup.autoBack(this)
             }
+        }
+        if (!BuildConfig.DEBUG) {
+            Backup.autoBack(this)
         }
         ReadManga.cancelPreDownloadTask()
         networkChangedListener.unRegister()
@@ -379,11 +382,12 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
         mScrollTimer.isEnabled = false
     }
 
-    override fun loadFail(msg: String) {
+    override fun loadFail(msg: String, retry: Boolean) {
         lifecycleScope.launch {
             if (loadingViewVisible) {
                 binding.llLoading.isGone = true
                 binding.llRetry.isVisible = true
+                binding.tvRetry.isVisible = retry
                 binding.tvMsg.text = msg
             } else {
                 loadMoreView.error(null, "加载失败，点击重试")
@@ -596,6 +600,19 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
                 }
             }
 
+            R.id.menu_disable_manga_page_anim -> {
+                item.isChecked = !item.isChecked
+                mMenu?.findItem(R.id.menu_disable_horizontal_page_snap)?.isVisible = !item.isChecked
+                AppConfig.disableMangaPageAnim = item.isChecked
+                if (item.isChecked) {
+                    mPagerSnapHelper.attachToRecyclerView(null)
+                } else {
+                    if (AppConfig.enableMangaHorizontalScroll && !AppConfig.disableHorizontalPageSnap) {
+                        mPagerSnapHelper.attachToRecyclerView(binding.recyclerView)
+                    }
+                }
+            }
+
             R.id.menu_gray_manga -> {
                 item.isChecked = !item.isChecked
                 AppConfig.enableMangaGray = item.isChecked
@@ -659,7 +676,7 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
         mAdapter.isHorizontal = enable
         if (enable) {
             if (!enableAutoScroll) {
-                if (AppConfig.disableHorizontalPageSnap) {
+                if (AppConfig.disableHorizontalPageSnap || AppConfig.disableMangaPageAnim) {
                     mPagerSnapHelper.attachToRecyclerView(null)
                 } else {
                     mPagerSnapHelper.attachToRecyclerView(binding.recyclerView)
@@ -686,9 +703,10 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
         menu.findItem(R.id.menu_epaper_manga).isChecked = AppConfig.enableMangaEInk
         menu.findItem(R.id.menu_epaper_manga_setting).isVisible = AppConfig.enableMangaEInk
         menu.findItem(R.id.menu_disable_horizontal_page_snap).run {
-            isVisible = AppConfig.enableMangaHorizontalScroll
-            isChecked = AppConfig.disableHorizontalPageSnap
+            isVisible = AppConfig.enableMangaHorizontalScroll && !AppConfig.disableMangaPageAnim
+            isChecked = AppConfig.disableHorizontalPageSnap || AppConfig.disableMangaPageAnim
         }
+        menu.findItem(R.id.menu_disable_manga_page_anim).isChecked = AppConfig.disableMangaPageAnim
         menu.findItem(R.id.menu_gray_manga).isChecked = AppConfig.enableMangaGray
     }
 
@@ -738,7 +756,11 @@ class ReadMangaActivity : VMBaseActivity<ActivityMangaBinding, ReadMangaViewMode
         }
         dx *= direction
         dy *= direction
-        binding.recyclerView.smoothScrollBy(dx, dy)
+        if (AppConfig.disableMangaPageAnim) {
+            binding.recyclerView.scrollBy(dx, dy)
+        } else {
+            binding.recyclerView.smoothScrollBy(dx, dy)
+        }
     }
 
     private fun showNumberPickerDialog(

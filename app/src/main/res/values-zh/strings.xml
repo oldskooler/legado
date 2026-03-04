@@ -384,6 +384,7 @@
     <string name="page_anim_simulation">仿真</string>
     <string name="page_anim_scroll">滚动</string>
     <string name="page_anim_none">无动画</string>
+    <string name="disable_manga_page_anim">禁用翻页动画</string>
     <string name="up_change_source_last_chapter_t">后台更新换源最新章节</string>
     <string name="up_change_source_last_chapter_s">开启则会在软件打开 1 分钟后开始更新</string>
     <string name="behavior_main_t">书架工具栏自动隐藏</string>
@@ -826,7 +827,7 @@
     <string name="sync_book_progress_t">同步阅读进度</string>
     <string name="sync_book_progress_s">进入退出阅读界面时同步阅读进度</string>
     <string name="sync_book_progress_plus_t">同步增强</string>
-    <string name="sync_book_progress_plus_s">重新进入页面（息屏、后台返回等）或者网络变为可用时同步云端进度</string>
+    <string name="sync_book_progress_plus_s">重新进入页面（息屏、后台返回等）或者网络变为可用时同步云端进度，同步新进度会询问</string>
     <string name="create_bookmark_error">创建书签失败</string>
     <string name="single_url">单 URL</string>
     <string name="export_bookshelf">导出书单</string>
